@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-bg: #f8fafc;
+  --color-brand-panel: #ffffff;
+  --color-cyan-400: #0891b2;
+  --color-amber-500: #d97706;
+  --color-slate-900: #0f172a;
+}
+
+body {
+  background-color: var(--color-brand-bg);
+  color: #334155; /* slate-700 equivalent */
+}
+
+.scanlines {
+  position: relative;
+  overflow: hidden;
+}
+
+.scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(rgba(0, 0, 0, 0.05) 50%, rgba(255, 255, 255, 0.05) 50%),
+              linear-gradient(90deg, rgba(255, 0, 0, 0.02), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.02));
+  background-size: 100% 4px, 4px 100%;
+  opacity: 0.5;
+  z-index: 10;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* Recharts Customizations */
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: rgba(0, 0, 0, 0.05);
+}
+
+.recharts-curve {
+  filter: drop-shadow(0 0 2px rgba(8, 145, 178, 0.2));
+}
+
