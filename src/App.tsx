@@ -38,9 +38,8 @@ const generateSignalData = (type: string, params: any) => {
   const points = [];
   const duration = 2; // seconds
   const step = 0.01;
-  const numPoints = duration / step;
-
-  for (let i = 0; i < numPoints; i++) {
+  const numPoints = Math.round(duration / step);
+  for (let i = 0; i <= numPoints; i++) {
     const t = i * step;
     let y = 0;
 
@@ -67,6 +66,31 @@ const generateSignalData = (type: string, params: any) => {
         const tInPeriod = t % T;
         y = tInPeriod < pWidth ? pHeight : 0;
         break;
+      case 'periodic_tri': {
+        const T = params.period || 1;
+        const pWidth = params.width || 0.6;
+        const pHeight = params.height || 2;
+        const tInPeriod = t % T;
+        const halfWidth = pWidth / 2;
+        if (tInPeriod < pWidth) {
+          y = pHeight * (1 - Math.abs(tInPeriod - halfWidth) / halfWidth);
+        } else {
+          y = 0;
+        }
+        break;
+      }
+      case 'periodic_sawtooth': {
+        const T = params.period || 1;
+        const pWidth = params.width || 1;
+        const pHeight = params.height || 2;
+        const tInPeriod = t % T;
+        if (tInPeriod < pWidth) {
+          y = pHeight * (tInPeriod / pWidth);
+        } else {
+          y = 0;
+        }
+        break;
+      }
       case 'tri':
         const tWidth = params.width || 1;
         const tCenter = params.center || 1;
@@ -77,8 +101,26 @@ const generateSignalData = (type: string, params: any) => {
         const x = Math.PI * (t - 1) * (params.bandwidth || 5);
         y = x === 0 ? (params.height || 1) : (params.height || 1) * (Math.sin(x) / x);
         break;
+      case 'sin_pulse':
+        const spWidth = params.width || 1;
+        const spCenter = params.center || 1;
+        const spStart = spCenter - spWidth / 2;
+        const spT = t - spStart;
+        if (spT >= 0 && spT < spWidth) {
+          y = (params.amplitude || 1) * Math.sin(2 * Math.PI * (params.frequency || 2) * spT);
+        } else {
+          y = 0;
+        }
+        break;
+      case 'sawtooth':
+        const sWidth = params.width || 1;
+        const sCenter = params.center || 1;
+        const tStart = sCenter - sWidth / 2;
+        const sT = t - tStart;
+        y = (sT >= 0 && sT < sWidth) ? (params.height || 1) * (sT / sWidth) : 0;
+        break;
     }
-    points.push({ t: t.toFixed(2), y });
+    points.push({ t: parseFloat(t.toFixed(4)), y });
   }
   return points;
 };
@@ -86,13 +128,13 @@ const generateSignalData = (type: string, params: any) => {
 // --- Components ---
 
 const SignalPlot = ({ data, targetData, color = "#0891b2", targetColor = "#cbd5e1" }: { data: any[], targetData?: any[], color?: string, targetColor?: string }) => (
-  <div className="h-full w-full bg-slate-50 border border-slate-200 rounded-lg overflow-hidden relative group shadow-inner">
+  <div className="h-full w-full bg-slate-50 border border-slate-200 rounded-lg overflow-hidden relative group shadow-inner min-h-[300px]">
     <div className="absolute inset-0 bg-[linear-gradient(rgba(0,0,0,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.02)_1px,transparent_1px)] bg-[size:20px_20px]" />
     <ResponsiveContainer width="100%" height="100%">
       <LineChart data={data} margin={{ top: 20, right: 20, left: -20, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" />
-        <XAxis dataKey="t" hide />
-        <YAxis domain={[-3, 3]} hide />
+        <XAxis dataKey="t" type="number" domain={[0, 2]} hide />
+        <YAxis domain={[-3.5, 3.5]} hide />
         {targetData && (
           <Line 
             type="monotone" 
@@ -112,7 +154,6 @@ const SignalPlot = ({ data, targetData, color = "#0891b2", targetColor = "#cbd5e
           strokeWidth={3} 
           dot={false} 
           isAnimationActive={false}
-          className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.1)]"
         />
       </LineChart>
     </ResponsiveContainer>
@@ -135,18 +176,12 @@ const Terminal = ({ messages }: { messages: string[] }) => {
 
 // --- Main App ---
 
-type RoomId = 'intro' | 'sinusoid' | 'summation_rect' | 'energy_rect' | 'energy_tri' | 'power_rect' | 'sinc' | 'escaped';
+type RoomId = 'intro' | 'summation_rect' | 'energy_rect' | 'energy_tri' | 'energy_sawtooth' | 'energy_sine_pulse' | 'power_rect' | 'power_sine' | 'power_tri' | 'power_sawtooth' | 'energy_sinc' | 'sinc' | 'escaped';
 
 export default function App() {
   const [room, setRoom] = useState<RoomId>('intro');
   const [messages, setMessages] = useState<string[]>(["Initializing Laboratory Subsystems...", "System Online. Welcome, Technician."]);
-  const [unlockedState, setUnlockedState] = useState({ sinusoid: false, summation: false, rect: false, tri: false, power: false, sinc: false });
-
-  // Room 1 State
-  const [params1, setParams1] = useState({ amplitude: 1.5, frequency: 2 });
-  const targetParams1 = useMemo(() => ({ amplitude: 2.0, frequency: 4 }), []);
-  const data1 = useMemo(() => generateSignalData('sinusoid', params1), [params1]);
-  const targetData1 = useMemo(() => generateSignalData('sinusoid', targetParams1), [targetParams1]);
+  const [unlockedState, setUnlockedState] = useState({ summation: false, rect: false, tri: false, sawtooth: false, sine_pulse: false, power: false, power_sine: false, power_tri: false, power_sawtooth: false, energy_sinc: false, sinc: false });
 
   // Room 1.5 State (Summation)
   const [roomSumInput, setRoomSumInput] = useState("");
@@ -169,11 +204,47 @@ export default function App() {
   const room2bSignal = { height: 3, width: 1.0, type: 'tri' }; // E = (3^2 * 1) / 3 = 3
   const data2b = useMemo(() => generateSignalData('tri', room2bSignal), []);
 
-  // Room 2c State (Power)
+  // Room 2b.5 State (Sawtooth)
+  const [roomSawtoothInput, setRoomSawtoothInput] = useState("");
+  const [roomSawtoothError, setRoomSawtoothError] = useState("");
+  const roomSawtoothSignal = { height: 3, width: 2.0, center: 1.0, type: 'sawtooth' }; // E = (3^2 * 2) / 3 = 6
+  const dataSawtooth = useMemo(() => generateSignalData('sawtooth', roomSawtoothSignal), []);
+
+  // Room 2b.7 State (Sine Pulse Energy)
+  const [roomSinePulseInput, setRoomSinePulseInput] = useState("");
+  const [roomSinePulseError, setRoomSinePulseError] = useState("");
+  const roomSinePulseSignal = { amplitude: 2.0, frequency: 2.0, width: 1.0, center: 1.0, type: 'sin_pulse' }; // E = (A^2 * W) / 2 = (4 * 1) / 2 = 2
+  const dataSinePulse = useMemo(() => generateSignalData('sin_pulse', roomSinePulseSignal), []);
+
+  // Room 2c State (Power Rect)
   const [roomPowerInput, setRoomPowerInput] = useState("");
   const [roomPowerError, setRoomPowerError] = useState("");
   const powerParams = { height: 2, width: 0.4, period: 1.0 }; // P = (H^2 * W) / T = (4 * 0.4) / 1 = 1.6
   const dataPower = useMemo(() => generateSignalData('periodic_rect', powerParams), []);
+
+  // Room 2d State (Power Sine)
+  const [roomPowerSineInput, setRoomPowerSineInput] = useState("");
+  const [roomPowerSineError, setRoomPowerSineError] = useState("");
+  const powerSineParams = { amplitude: 2, frequency: 3 }; // P = A^2 / 2 = 4 / 2 = 2
+  const dataPowerSine = useMemo(() => generateSignalData('sinusoid', powerSineParams), []);
+
+  // Room 2f State (Power Periodic Tri)
+  const [roomPowerTriInput, setRoomPowerTriInput] = useState("");
+  const [roomPowerTriError, setRoomPowerTriError] = useState("");
+  const powerTriParams = { height: 3, width: 0.6, period: 2.0 }; // P = (H^2 * W) / (3 * T) = (9 * 0.6) / (3 * 2) = 5.4 / 6 = 0.9
+  const dataPowerTri = useMemo(() => generateSignalData('periodic_tri', powerTriParams), []);
+
+  // Room 2g State (Power Periodic Sawtooth)
+  const [roomPowerSawtoothInput, setRoomPowerSawtoothInput] = useState("");
+  const [roomPowerSawtoothError, setRoomPowerSawtoothError] = useState("");
+  const powerSawtoothParams = { height: 3, width: 1.0, period: 3.0 }; // P = (H^2 * W) / (3 * T) = (9 * 1) / (3 * 3) = 9 / 9 = 1.0
+  const dataPowerSawtooth = useMemo(() => generateSignalData('periodic_sawtooth', powerSawtoothParams), []);
+
+  // Room 2e State (Energy Sinc)
+  const [roomEnergySincInput, setRoomEnergySincInput] = useState("");
+  const [roomEnergySincError, setRoomEnergySincError] = useState("");
+  const energySincParams = { height: 2, bandwidth: 4 }; // E = H^2 / B = 4 / 4 = 1.0
+  const dataEnergySinc = useMemo(() => generateSignalData('sinc', energySincParams), []);
 
   // Room 3 State (Sinc)
   const [room3Input, setRoom3Input] = useState("");
@@ -182,17 +253,6 @@ export default function App() {
   const data3 = useMemo(() => generateSignalData('sinc', sincSignal), []);
 
   const addMessage = (msg: string) => setMessages(prev => [...prev.slice(-10), msg]);
-
-  const checkRoom1 = () => {
-    if (Math.abs(params1.amplitude - targetParams1.amplitude) < 0.1 && 
-        Math.abs(params1.frequency - targetParams1.frequency) < 0.1) {
-      addMessage("OSCILLOSCOPE SYNCED. SEAL 1 DISENGAGED.");
-      setUnlockedState(s => ({ ...s, sinusoid: true }));
-      setRoom('summation_rect');
-    } else {
-      addMessage("ERROR: PHASE MISMATCH. CALIBRATE MAGNITUDE AND FREQUENCY.");
-    }
-  };
 
   const checkRoomSum = () => {
     const val = parseFloat(roomSumInput);
@@ -223,22 +283,94 @@ export default function App() {
     if (Math.abs(val - 3.0) < 0.1) {
       addMessage("TRIANGULAR ENERGY VERIFIED. SUB-GRID B STABILIZED.");
       setUnlockedState(s => ({ ...s, tri: true }));
-      setRoom('power_rect');
+      setRoom('energy_sawtooth');
     } else {
       setRoom2bError("Incorrect Energy Value (Hint: E = H²W/3)");
       addMessage("GRID CORE FAILURE: Triangular wave energy mismatch.");
     }
   };
 
+  const checkRoomEnergySawtooth = () => {
+    const val = parseFloat(roomSawtoothInput);
+    if (Math.abs(val - 6.0) < 0.1) {
+      addMessage("SAWTOOTH ENERGY VERIFIED. SYSTEM POWER DISSIPATION MAP UPDATED.");
+      setUnlockedState(s => ({ ...s, sawtooth: true }));
+      setRoom('energy_sine_pulse');
+    } else {
+      setRoomSawtoothError("Incorrect Energy (Hint: Same as Tri, integral of t²)");
+      addMessage("ENERGY OVERLOAD: Sawtooth signal energy calculation error.");
+    }
+  };
+
+  const checkRoomEnergySinePulse = () => {
+    const val = parseFloat(roomSinePulseInput);
+    if (Math.abs(val - 2.0) < 0.1) {
+      addMessage("SINUSOIDAL PULSE ENERGY VERIFIED. HARMONIC DAMPENING SYSTEMS ONLINE.");
+      setUnlockedState(s => ({ ...s, sine_pulse: true }));
+      setRoom('power_rect');
+    } else {
+      setRoomSinePulseError("Incorrect Energy (Hint: E = (A²W)/2 for full periods)");
+      addMessage("PHASE COHERENCE ERROR: Sine pulse energy mismatch.");
+    }
+  };
+
   const checkRoomPower = () => {
     const val = parseFloat(roomPowerInput);
     if (Math.abs(val - 1.6) < 0.1) {
-      addMessage("AVERAGE POWER VERIFIED. UNINTERRUPTIBLE POWER SUPPLY ONLINE.");
+      addMessage("RECTANGULAR POWER VERIFIED. SWITCHING TO CYNOSURE ANALYZER.");
       setUnlockedState(s => ({ ...s, power: true }));
-      setRoom('sinc');
+      setRoom('power_sine');
     } else {
       setRoomPowerError("Incorrect Avg Power (Hint: P = E_period / T)");
       addMessage("POWER DISSIPATION ERR: Average power mismatch.");
+    }
+  };
+
+  const checkRoomPowerSine = () => {
+    const val = parseFloat(roomPowerSineInput);
+    if (Math.abs(val - 2.0) < 0.1) {
+      addMessage("SINUSOIDAL POWER VERIFIED. GRID HARMONICS SYNCHRONIZED.");
+      setUnlockedState(s => ({ ...s, power_sine: true }));
+      setRoom('power_tri');
+    } else {
+      setRoomPowerSineError("Incorrect Power Value (Hint: P = A²/2)");
+      addMessage("HARMONIC REJECTION: Sinusoid power calculation error.");
+    }
+  };
+
+  const checkRoomPowerTri = () => {
+    const val = parseFloat(roomPowerTriInput);
+    if (Math.abs(val - 0.9) < 0.05) {
+      addMessage("TRIANGULAR POWER VERIFIED. LOAD BALANCERS OPTIMIZED.");
+      setUnlockedState(s => ({ ...s, power_tri: true }));
+      setRoom('power_sawtooth');
+    } else {
+      setRoomPowerTriError("Incorrect Power (Hint: P = E_pulse / T)");
+      addMessage("VOLTAGE FLUCTUATION: Triangular power mismatch.");
+    }
+  };
+
+  const checkRoomPowerSawtooth = () => {
+    const val = parseFloat(roomPowerSawtoothInput);
+    if (Math.abs(val - 1.0) < 0.1) {
+      addMessage("SAWTOOTH POWER VERIFIED. THERMAL DISSIPATION WITHIN LIMITS.");
+      setUnlockedState(s => ({ ...s, power_sawtooth: true }));
+      setRoom('energy_sinc');
+    } else {
+      setRoomPowerSawtoothError("Incorrect Power (Hint: P = H²W / 3T)");
+      addMessage("SYSTEM OVERHEATING: Sawtooth power mismatch.");
+    }
+  };
+
+  const checkRoomEnergySinc = () => {
+    const val = parseFloat(roomEnergySincInput);
+    if (Math.abs(val - 1.0) < 0.1) {
+      addMessage("SINC ENERGY INTEGRAL VERIFIED. INTERPOLATION CORE ACTIVE.");
+      setUnlockedState(s => ({ ...s, energy_sinc: true }));
+      setRoom('sinc');
+    } else {
+      setRoomEnergySincError("Incorrect Energy (Hint: E = H²/B)");
+      addMessage("SCANNER SYNC FAILED: Sinc function energy mismatch.");
     }
   };
 
@@ -255,7 +387,7 @@ export default function App() {
 
   const resetGame = () => {
     setRoom('intro');
-    setUnlockedState({ sinusoid: false, rect: false, tri: false, sinc: false });
+    setUnlockedState({ summation: false, rect: false, tri: false, sawtooth: false, sine_pulse: false, power: false, power_sine: false, power_tri: false, power_sawtooth: false, energy_sinc: false, sinc: false });
     setMessages(["Rebooting... Welcome back, Technician."]);
   };
 
@@ -305,78 +437,11 @@ export default function App() {
                   The signal cleanroom has been locked down due to harmonic drift. Review the high-contrast data feeds and restore balance.
                 </p>
                 <button 
-                  onClick={() => setRoom('sinusoid')}
+                  onClick={() => setRoom('summation_rect')}
                   className="px-10 py-4 bg-cyan-600 text-white font-black uppercase tracking-[0.2em] rounded shadow-lg shadow-cyan-500/20 hover:bg-cyan-700 transition-all border border-cyan-600"
                 >
                   Enter Lab
                 </button>
-              </motion.div>
-            )}
-
-            {room === 'sinusoid' && (
-              <motion.div 
-                key="sinusoid"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="flex-1 flex flex-col gap-4"
-              >
-                <div className="flex-1 bg-white border border-slate-200 rounded-lg p-6 relative overflow-hidden scanlines flex flex-col shadow-sm">
-                  <div className="flex justify-between items-start mb-6">
-                    <div>
-                      <h2 className="text-sm font-mono text-cyan-700 uppercase tracking-widest font-bold">Scope Feed: Sine-Visualizer</h2>
-                      <p className="text-[10px] text-slate-400 font-bold">ADJUST GENERATOR TO MATCH MASTER_FEED (DASHED)</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex-1 min-h-[300px]">
-                    <SignalPlot data={data1} targetData={targetData1} color="#0891b2" targetColor="#cbd5e1" />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 mt-6">
-                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg">
-                      <div className="flex justify-between text-[10px] text-slate-500 uppercase mb-3 font-mono font-bold">
-                        <span>Amplitude (A)</span>
-                        <span className="text-cyan-700">{params1.amplitude.toFixed(1)}V</span>
-                      </div>
-                      <input 
-                        type="range" min="0.1" max="3" step="0.1" 
-                        value={params1.amplitude} 
-                        onChange={e => setParams1(p => ({ ...p, amplitude: parseFloat(e.target.value) }))}
-                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-cyan-600"
-                      />
-                    </div>
-                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg">
-                      <div className="flex justify-between text-[10px] text-slate-500 uppercase mb-3 font-mono font-bold">
-                        <span>Frequency (f)</span>
-                        <span className="text-cyan-700">{params1.frequency.toFixed(1)}Hz</span>
-                      </div>
-                      <input 
-                        type="range" min="1" max="10" step="0.1" 
-                        value={params1.frequency} 
-                        onChange={e => setParams1(p => ({ ...p, frequency: parseFloat(e.target.value) }))}
-                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-cyan-600"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="h-32 bg-white border border-slate-200 rounded-lg p-4 flex gap-4 shadow-sm">
-                  <div className="flex-1 p-3 bg-slate-50 border border-slate-100 rounded text-xs leading-relaxed text-slate-600 flex items-center gap-4">
-                    <div className="w-12 h-12 rounded bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
-                      <Activity className="w-6 h-6 text-amber-600" />
-                    </div>
-                    <div>
-                      <h4 className="text-[10px] font-bold text-amber-700 uppercase mb-1 tracking-widest italic font-mono">Mission: Harmonic Balance</h4>
-                      Students should observe how changing A affects the peaks and f affects the density of waves.
-                    </div>
-                  </div>
-                  <button 
-                    onClick={checkRoom1}
-                    className="w-48 bg-cyan-50 border border-cyan-600 text-cyan-700 rounded text-xs font-bold uppercase tracking-widest hover:bg-cyan-100 transition-all"
-                  >
-                    Authorize Sync
-                  </button>
-                </div>
               </motion.div>
             )}
 
@@ -564,6 +629,130 @@ export default function App() {
                 </div>
               </motion.div>
             )}
+            
+            {room === 'energy_sawtooth' && (
+              <motion.div 
+                key="energy_sawtooth"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex-1 flex flex-col gap-4"
+              >
+                <div className="flex-1 bg-white border border-slate-200 rounded-lg p-6 relative overflow-hidden scanlines flex flex-col shadow-sm">
+                  <div className="flex justify-between items-start mb-6">
+                    <div>
+                      <h2 className="text-sm font-mono text-indigo-700 uppercase tracking-widest font-bold">Energy Lab: Sawtooth Ramp Analysis</h2>
+                      <p className="text-[10px] text-slate-400 font-bold italic">"LINEAR RAMP INTEGRATION: ∫(Ht/W)² dt"</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex-1 min-h-[300px]">
+                    <SignalPlot data={dataSawtooth} color="#4338ca" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mt-6">
+                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg flex flex-col justify-center">
+                      <p className="text-[10px] text-slate-500 uppercase font-mono mb-2 font-bold">Ramp Spec</p>
+                      <div className="space-y-1 text-xs font-mono font-bold">
+                        <div className="flex justify-between text-slate-500"><span>Height (H)</span> <span className="text-indigo-600">3.0</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Pulse Width (W)</span> <span className="text-indigo-600">2.0s</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Type</span> <span className="text-slate-700">APERIODIC_RAMP</span></div>
+                      </div>
+                    </div>
+                    <div className="bg-white border-2 border-indigo-100 p-4 rounded-lg shadow-inner">
+                      <p className="text-[10px] text-slate-500 uppercase font-mono mb-2 font-bold">Total Energy (E)</p>
+                      <input 
+                        type="number" step="0.1"
+                        value={roomSawtoothInput}
+                        onChange={e => setRoomSawtoothInput(e.target.value)}
+                        placeholder="E_TOTAL..."
+                        className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-indigo-800 font-mono text-xl focus:outline-none transition-all"
+                      />
+                      {roomSawtoothError && <p className="text-red-500 text-[9px] mt-1 uppercase font-black">{roomSawtoothError}</p>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="h-32 bg-white border border-slate-200 rounded-lg p-4 flex gap-4">
+                  <div className="flex-1 p-3 bg-slate-50 border border-slate-100 rounded text-xs leading-relaxed text-slate-600 flex items-center gap-4">
+                    <div className="w-12 h-12 rounded bg-indigo-50 border border-indigo-200 flex items-center justify-center shrink-0">
+                      <RefreshCw className="w-6 h-6 text-indigo-600" />
+                    </div>
+                    <div>
+                      <h4 className="text-[10px] font-bold text-indigo-700 uppercase mb-1 tracking-widest italic font-mono">Mission: Ramp Calibration</h4>
+                      The energy of a linear ramp x(t) = (H/W)t from 0 to W is H²W/3. This formula holds regardless of the slope direction (ascending or descending).
+                    </div>
+                  </div>
+                  <button 
+                    onClick={checkRoomEnergySawtooth}
+                    className="w-48 bg-indigo-600 text-white rounded text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-md"
+                  >
+                    Confirm Energy
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {room === 'energy_sine_pulse' && (
+              <motion.div 
+                key="energy_sine_pulse"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex-1 flex flex-col gap-4"
+              >
+                <div className="flex-1 bg-white border border-slate-200 rounded-lg p-6 relative overflow-hidden scanlines flex flex-col shadow-sm">
+                  <div className="flex justify-between items-start mb-6">
+                    <div>
+                      <h2 className="text-sm font-mono text-cyan-800 uppercase tracking-widest font-bold">Harvester: Sinusoidal Energy Extraction</h2>
+                      <p className="text-[10px] text-slate-400 font-bold italic">"ENERGY OF A PULSE: E = ∫ |A sin(2πft)|² dt"</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex-1 min-h-[300px]">
+                    <SignalPlot data={dataSinePulse} color="#06b6d4" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mt-6">
+                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg flex flex-col justify-center">
+                      <p className="text-[10px] text-slate-500 uppercase font-mono mb-2 font-bold">Pulse Metrics</p>
+                      <div className="space-y-1 text-xs font-mono font-bold">
+                        <div className="flex justify-between text-slate-500"><span>Peak Amplitude (A)</span> <span className="text-cyan-700">2.0 V</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Pulse Width (W)</span> <span className="text-cyan-700">1.0 s</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Cycles (f*W)</span> <span className="text-slate-900">2.0</span></div>
+                      </div>
+                    </div>
+                    <div className="bg-white border-2 border-cyan-100 p-4 rounded-lg shadow-inner">
+                      <p className="text-[10px] text-slate-500 uppercase font-mono mb-2 font-bold">Calculated Energy (E)</p>
+                      <input 
+                        type="number" step="0.1"
+                        value={roomSinePulseInput}
+                        onChange={e => setRoomSinePulseInput(e.target.value)}
+                        placeholder="INPUT ENERGY..."
+                        className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-cyan-800 font-mono text-xl focus:outline-none transition-all"
+                      />
+                      {roomSinePulseError && <p className="text-red-500 text-[9px] mt-1 font-black">{roomSinePulseError}</p>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="h-32 bg-white border border-slate-200 rounded-lg p-4 flex gap-4">
+                  <div className="flex-1 p-3 bg-slate-50 border border-slate-100 rounded text-xs leading-relaxed text-slate-600 flex items-center gap-4">
+                    <div className="w-12 h-12 rounded bg-cyan-50 border border-cyan-200 flex items-center justify-center shrink-0">
+                      <Zap className="w-6 h-6 text-cyan-600" />
+                    </div>
+                    <div>
+                      <h4 className="text-[10px] font-bold text-cyan-700 uppercase mb-1 tracking-widest italic font-mono">Mission: Harmonic Integration</h4>
+                      For a sinusoidal pulse covering a whole number of cycles, energy E = (A²W)/2. This is the integration of power over time.
+                    </div>
+                  </div>
+                  <button 
+                    onClick={checkRoomEnergySinePulse}
+                    className="w-48 bg-cyan-600 text-white rounded text-xs font-bold uppercase tracking-widest hover:bg-cyan-700 transition-all shadow-md"
+                  >
+                    Sync Energy
+                  </button>
+                </div>
+              </motion.div>
+            )}
 
             {room === 'power_rect' && (
               <motion.div 
@@ -622,6 +811,254 @@ export default function App() {
                     className="w-48 bg-emerald-600 text-white rounded text-xs font-bold uppercase tracking-widest hover:bg-emerald-700 transition-all shadow-md"
                   >
                     Stabilize Grid
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {room === 'power_sine' && (
+              <motion.div 
+                key="power_sine"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex-1 flex flex-col gap-4"
+              >
+                <div className="flex-1 bg-white border border-slate-200 rounded-lg p-6 relative overflow-hidden scanlines flex flex-col shadow-sm">
+                  <div className="flex justify-between items-start mb-6">
+                    <div>
+                      <h2 className="text-sm font-mono text-cyan-800 uppercase tracking-widest font-bold">Terminal: Sinusoidal Power Core</h2>
+                      <p className="text-[10px] text-slate-400 font-bold italic">"CALCULATE MSV (MEAN SQUARE VALUE): P = A²/2"</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex-1 min-h-[300px]">
+                    <SignalPlot data={dataPowerSine} color="#0891b2" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mt-6">
+                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg flex flex-col justify-center">
+                      <p className="text-[10px] text-slate-500 uppercase font-mono mb-2 font-bold">Sine Specs</p>
+                      <div className="space-y-1 text-xs font-mono font-bold">
+                        <div className="flex justify-between text-slate-500"><span>Amplitude (A)</span> <span className="text-cyan-700">2.0 V</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Frequency (f)</span> <span className="text-slate-400">3.0 Hz</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Type</span> <span className="text-slate-700">PERIODIC_SINE</span></div>
+                      </div>
+                    </div>
+                    <div className="bg-white border-2 border-cyan-100 p-4 rounded-lg shadow-inner">
+                      <p className="text-[10px] text-slate-500 uppercase font-mono mb-2 font-bold">Average Power (P)</p>
+                      <input 
+                        type="number" step="0.1"
+                        value={roomPowerSineInput}
+                        onChange={e => setRoomPowerSineInput(e.target.value)}
+                        placeholder="P_SINE..."
+                        className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-cyan-800 font-mono text-xl focus:outline-none transition-all"
+                      />
+                      {roomPowerSineError && <p className="text-red-500 text-[9px] mt-1 uppercase font-black">{roomPowerSineError}</p>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="h-32 bg-white border border-slate-200 rounded-lg p-4 flex gap-4">
+                  <div className="flex-1 p-3 bg-slate-50 border border-slate-100 rounded text-xs leading-relaxed text-slate-600 flex items-center gap-4">
+                    <div className="w-12 h-12 rounded bg-cyan-50 border border-cyan-200 flex items-center justify-center shrink-0">
+                      <Zap className="w-6 h-6 text-cyan-600" />
+                    </div>
+                    <div>
+                      <h4 className="text-[10px] font-bold text-cyan-700 uppercase mb-1 tracking-widest italic font-mono">Mission: RMS Integrity</h4>
+                      The average power of a sinusoid A·sin(ωt + φ) is simply A²/2. This represents the Mean Square Value of the signal.
+                    </div>
+                  </div>
+                  <button 
+                    onClick={checkRoomPowerSine}
+                    className="w-48 bg-cyan-600 text-white rounded text-xs font-bold uppercase tracking-widest hover:bg-cyan-700 transition-all shadow-md"
+                  >
+                    Authorize Power
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {room === 'power_tri' && (
+              <motion.div 
+                key="power_tri"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex-1 flex flex-col gap-4"
+              >
+                <div className="flex-1 bg-white border border-slate-200 rounded-lg p-6 relative overflow-hidden scanlines flex flex-col shadow-sm">
+                  <div className="flex justify-between items-start mb-6">
+                    <div>
+                      <h2 className="text-sm font-mono text-purple-700 uppercase tracking-widest font-bold">Monitor: Periodic Triangle Load</h2>
+                      <p className="text-[10px] text-slate-400 font-bold italic">"AVERAGE POWER: P = (1/T) ∫ |x(t)|² dt"</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex-1 min-h-[300px]">
+                    <SignalPlot data={dataPowerTri} color="#9333ea" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mt-6">
+                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg flex flex-col justify-center">
+                      <p className="text-[10px] text-slate-500 uppercase font-mono mb-2 font-bold">Triangle Pulse Specs</p>
+                      <div className="space-y-1 text-xs font-mono font-bold">
+                        <div className="flex justify-between text-slate-500"><span>Height (H)</span> <span className="text-purple-600">3.0</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Base Width (W)</span> <span className="text-purple-600">0.6s</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Period (T)</span> <span className="text-slate-900 italic">2.0s</span></div>
+                      </div>
+                    </div>
+                    <div className="bg-white border-2 border-purple-100 p-4 rounded-lg shadow-inner">
+                      <p className="text-[10px] text-slate-500 uppercase font-mono mb-2 font-bold">Avg Power (P_avg)</p>
+                      <input 
+                        type="number" step="0.01"
+                        value={roomPowerTriInput}
+                        onChange={e => setRoomPowerTriInput(e.target.value)}
+                        placeholder="P_AVG..."
+                        className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-purple-800 font-mono text-xl focus:outline-none transition-all"
+                      />
+                      {roomPowerTriError && <p className="text-red-500 text-[9px] mt-1 font-black">{roomPowerTriError}</p>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="h-32 bg-white border border-slate-200 rounded-lg p-4 flex gap-4">
+                  <div className="flex-1 p-3 bg-slate-50 border border-slate-100 rounded text-xs leading-relaxed text-slate-600 flex items-center gap-4">
+                    <div className="w-12 h-12 rounded bg-purple-50 border border-purple-200 flex items-center justify-center shrink-0">
+                      <Zap className="w-6 h-6 text-purple-600" />
+                    </div>
+                    <div>
+                      <h4 className="text-[10px] font-bold text-purple-700 uppercase mb-1 tracking-widest italic font-mono">Mission: Triangle RMS</h4>
+                      Integrate the squared magnitude over one period. For a triangle pulse of width W and height H, Energy E = H²W/3. Average Power P = E/T.
+                    </div>
+                  </div>
+                  <button 
+                    onClick={checkRoomPowerTri}
+                    className="w-48 bg-purple-600 text-white rounded text-xs font-bold uppercase tracking-widest hover:bg-purple-700 transition-all shadow-md"
+                  >
+                    Stabilize Load
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {room === 'power_sawtooth' && (
+              <motion.div 
+                key="power_sawtooth"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex-1 flex flex-col gap-4"
+              >
+                <div className="flex-1 bg-white border border-slate-200 rounded-lg p-6 relative overflow-hidden scanlines flex flex-col shadow-sm">
+                  <div className="flex justify-between items-start mb-6">
+                    <div>
+                      <h2 className="text-sm font-mono text-indigo-700 uppercase tracking-widest font-bold">Harvester: Sawtooth Periodic Power</h2>
+                      <p className="text-[10px] text-slate-400 font-bold italic">"CALCULATE DISSIPATION: P = (1/T) ∫ |x(t)|² dt"</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex-1 min-h-[300px]">
+                    <SignalPlot data={dataPowerSawtooth} color="#4f46e5" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mt-6">
+                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg flex flex-col justify-center">
+                      <p className="text-[10px] text-slate-500 uppercase font-mono mb-2 font-bold">Sawtooth Metrics</p>
+                      <div className="space-y-1 text-xs font-mono font-bold">
+                        <div className="flex justify-between text-slate-500"><span>Peak (H)</span> <span className="text-indigo-600">3.0</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Ramp Width (W)</span> <span className="text-indigo-600">1.0s</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Period (T)</span> <span className="text-slate-900 italic">3.0s</span></div>
+                      </div>
+                    </div>
+                    <div className="bg-white border-2 border-indigo-100 p-4 rounded-lg shadow-inner">
+                      <p className="text-[10px] text-slate-500 uppercase font-mono mb-2 font-bold">Average Power (P)</p>
+                      <input 
+                        type="number" step="0.1"
+                        value={roomPowerSawtoothInput}
+                        onChange={e => setRoomPowerSawtoothInput(e.target.value)}
+                        placeholder="P_AVG..."
+                        className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-indigo-800 font-mono text-xl focus:outline-none transition-all"
+                      />
+                      {roomPowerSawtoothError && <p className="text-red-500 text-[9px] mt-1 font-black">{roomPowerSawtoothError}</p>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="h-32 bg-white border border-slate-200 rounded-lg p-4 flex gap-4">
+                  <div className="flex-1 p-3 bg-slate-50 border border-slate-100 rounded text-xs leading-relaxed text-slate-600 flex items-center gap-4">
+                    <div className="w-12 h-12 rounded bg-indigo-50 border border-indigo-200 flex items-center justify-center shrink-0">
+                      <Zap className="w-6 h-6 text-indigo-600" />
+                    </div>
+                    <div>
+                      <h4 className="text-[10px] font-bold text-indigo-700 uppercase mb-1 tracking-widest italic font-mono">Mission: Sawtooth Balance</h4>
+                      Periodic power calculation for a sawtooth ramp follows the same energy-per-period logic: P = (H²W)/(3T).
+                    </div>
+                  </div>
+                  <button 
+                    onClick={checkRoomPowerSawtooth}
+                    className="w-48 bg-indigo-600 text-white rounded text-xs font-bold uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-md"
+                  >
+                    Sync Grid
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {room === 'energy_sinc' && (
+              <motion.div 
+                key="energy_sinc"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex-1 flex flex-col gap-4"
+              >
+                <div className="flex-1 bg-white border border-slate-200 rounded-lg p-6 relative overflow-hidden scanlines flex flex-col shadow-sm">
+                  <div className="flex justify-between items-start mb-6">
+                    <div>
+                      <h2 className="text-sm font-mono text-blue-700 uppercase tracking-widest font-bold">Scanner: Sinc Energy Integral</h2>
+                      <p className="text-[10px] text-slate-400 font-bold italic">"CALCULATE TOTAL ENERGY E = ∫|x(t)|² dt"</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex-1 min-h-[300px]">
+                    <SignalPlot data={dataEnergySinc} color="#2563eb" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mt-6">
+                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-lg flex flex-col justify-center">
+                      <p className="text-[10px] text-slate-500 uppercase font-mono mb-2 font-bold">Spectral Specs</p>
+                      <div className="space-y-1 text-xs font-mono font-bold">
+                        <div className="flex justify-between text-slate-500"><span>Peak Height (H)</span> <span className="text-blue-700">2.0</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Bandwidth (B)</span> <span className="text-blue-700">4.0</span></div>
+                        <div className="flex justify-between text-slate-500"><span>Type</span> <span className="text-slate-700">SINC_APERIODIC</span></div>
+                      </div>
+                    </div>
+                    <div className="bg-white border-2 border-blue-100 p-4 rounded-lg shadow-inner">
+                      <p className="text-[10px] text-slate-500 uppercase font-mono mb-2 font-bold">Signal Energy (E)</p>
+                      <input 
+                        type="number" step="0.1"
+                        value={roomEnergySincInput}
+                        onChange={e => setRoomEnergySincInput(e.target.value)}
+                        placeholder="TOTAL ENERGY..."
+                        className="w-full bg-slate-50 border border-slate-200 rounded p-2 text-blue-800 font-mono text-xl focus:outline-none transition-all"
+                      />
+                      {roomEnergySincError && <p className="text-red-500 text-[9px] mt-1 uppercase font-black">{roomEnergySincError}</p>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="h-32 bg-white border border-slate-200 rounded-lg p-4 flex gap-4">
+                  <div className="flex-1 p-3 bg-slate-50 border border-slate-100 rounded text-xs leading-relaxed text-slate-600 flex items-center gap-4">
+                    <div className="w-12 h-12 rounded bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0">
+                      <Zap className="w-6 h-6 text-blue-600" />
+                    </div>
+                    <div>
+                      <h4 className="text-[10px] font-bold text-blue-700 uppercase mb-1 tracking-widest italic font-mono">Mission: Bandwidth Proof</h4>
+                      The energy of H·sinc(Bt) is H²/B. This signal has high peak power but finite energy due to its specific decay profile.
+                    </div>
+                  </div>
+                  <button 
+                    onClick={checkRoomEnergySinc}
+                    className="w-48 bg-blue-600 text-white rounded text-xs font-bold uppercase tracking-widest hover:bg-blue-700 transition-all shadow-md"
+                  >
+                    Authorize Sync
                   </button>
                 </div>
               </motion.div>
@@ -735,41 +1172,76 @@ export default function App() {
             <div className="space-y-3">
               <StatusStep 
                 num="01" 
-                title="Sine Calibration" 
-                active={room === 'sinusoid'} 
-                cleared={unlockedState.sinusoid} 
-                level={unlockedState.sinusoid ? 1 : (room === 'sinusoid' ? 0.5 : 0)} 
-              />
-              <StatusStep 
-                num="02" 
                 title="Interference" 
                 active={room === 'summation_rect'} 
                 cleared={unlockedState.summation} 
                 level={unlockedState.summation ? 1 : (room === 'summation_rect' ? 0.5 : 0)} 
               />
               <StatusStep 
-                num="03" 
+                num="02" 
                 title="Rect Energy" 
                 active={room === 'energy_rect'} 
                 cleared={unlockedState.rect}
                 level={unlockedState.rect ? 1 : (room === 'energy_rect' ? 0.5 : 0)}
               />
               <StatusStep 
-                num="04" 
+                num="03" 
                 title="Tri Energy" 
                 active={room === 'energy_tri'} 
                 cleared={unlockedState.tri}
                 level={unlockedState.tri ? 1 : (room === 'energy_tri' ? 0.5 : 0)}
               />
               <StatusStep 
+                num="04" 
+                title="Sawtooth Energy" 
+                active={room === 'energy_sawtooth'} 
+                cleared={unlockedState.sawtooth}
+                level={unlockedState.sawtooth ? 1 : (room === 'energy_sawtooth' ? 0.5 : 0)}
+              />
+              <StatusStep 
                 num="05" 
-                title="Avg Power" 
+                title="Sine Pulse E" 
+                active={room === 'energy_sine_pulse'} 
+                cleared={unlockedState.sine_pulse}
+                level={unlockedState.sine_pulse ? 1 : (room === 'energy_sine_pulse' ? 0.5 : 0)}
+              />
+              <StatusStep 
+                num="06" 
+                title="Avg Power (R)" 
                 active={room === 'power_rect'} 
                 cleared={unlockedState.power}
                 level={unlockedState.power ? 1 : (room === 'power_rect' ? 0.5 : 0)}
               />
               <StatusStep 
-                num="06" 
+                num="07" 
+                title="Avg Power (S)" 
+                active={room === 'power_sine'} 
+                cleared={unlockedState.power_sine}
+                level={unlockedState.power_sine ? 1 : (room === 'power_sine' ? 0.5 : 0)}
+              />
+              <StatusStep 
+                num="08" 
+                title="Avg Power (T)" 
+                active={room === 'power_tri'} 
+                cleared={unlockedState.power_tri}
+                level={unlockedState.power_tri ? 1 : (room === 'power_tri' ? 0.5 : 0)}
+              />
+              <StatusStep 
+                num="09" 
+                title="Avg Power (Saw)" 
+                active={room === 'power_sawtooth'} 
+                cleared={unlockedState.power_sawtooth}
+                level={unlockedState.power_sawtooth ? 1 : (room === 'power_sawtooth' ? 0.5 : 0)}
+              />
+              <StatusStep 
+                num="10" 
+                title="Sinc Energy" 
+                active={room === 'energy_sinc'} 
+                cleared={unlockedState.energy_sinc}
+                level={unlockedState.energy_sinc ? 1 : (room === 'energy_sinc' ? 0.5 : 0)}
+              />
+              <StatusStep 
+                num="11" 
                 title="Functions" 
                 active={room === 'sinc'} 
                 cleared={unlockedState.sinc}
@@ -789,8 +1261,11 @@ export default function App() {
                   <p>• Sine Wave: <span className="text-cyan-700 italic">peak A, cycle f (Hz)</span></p>
                   <p>• Summation: <span className="text-cyan-700 italic">y(t) = x1(t) + x2(t)</span></p>
                   <p>• Rect Energy: <span className="text-amber-700 italic">H² × W</span></p>
-                  <p>• Tri Energy: <span className="text-purple-700 italic">(H² × W) / 3</span></p>
-                  <p>• Periodic Power: <span className="text-emerald-700 italic">Energy_period / T</span></p>
+                  <p>• Tri/Sawtooth: <span className="text-purple-700 italic">(H² × W) / 3</span></p>
+                  <p>• Sine Pulse E: <span className="text-cyan-700 italic">(A² × W) / 2</span></p>
+                  <p>• Sine Power: <span className="text-cyan-700 italic">A² / 2</span></p>
+                  <p>• Periodic Power: <span className="text-emerald-700 italic">E_period / T</span></p>
+                  <p>• Sinc Energy: <span className="text-blue-700 italic">H² / B</span></p>
                 </div>
               </div>
               <div className="bg-slate-50 p-2 rounded text-[9px] font-mono border-l-4 border-cyan-600 flex justify-between items-center text-slate-400 uppercase font-black">
